@@ -25,7 +25,7 @@ async def main():
         url = "https://www.vinted.fr/api/v2/catalog/items?search_text=chaussures%20nike&per_page=5"
 
         try:
-            await page.goto(url, wait_until="domcontentloaded")
+            await page.goto(url, wait_until="domcontentloaded", timeout=30000)
             
             body_content = await page.locator("body").inner_text()
             print("--- Page Content ---")
