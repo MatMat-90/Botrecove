@@ -1,0 +1,22 @@
+
+# Fichiers de cache et de dépendances Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environnement virtuel
+.venv/
+virtualenv/
+env/
+
+# Fichiers de sortie et de débogage
+error_page.html
+error_screenshot.png
+results.jsonl
+
+# Fichiers spécifiques à l'IDE
+.vscode/
+.idea/
+
+# Ancien script de test
+test_api.py
