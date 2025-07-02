@@ -1,0 +1,116 @@
+---
+
+
+
+   ... first 75 lines hidden ...
+    76         ITEMS_PER_PAGE, MAX_PAGES_PER_TERM, CONCURRENT_REQUESTS, REQUEST_TIMEOUT = 96, 100, 10
+       , 30.0
+    77         RESULTS_FILE, ERRORS_FILE = "vinted_items.jsonl", "vinted_errors.log"
+    78
+    79         class VintedAPIClient:
+    80             VINTED_API_URL = "https://www.vinted.fr/api/v2/catalog/items"
+    81             USER_AGENTS = ["Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36
+       (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36"]
+    82             def __init__(self, c, p):
+    83                 self.cookie, self.client = c, httpx.AsyncClient(proxies=p, http2=True,
+       timeout=REQUEST_TIMEOUT)
+    84             async def fetch_page(self, s, n):
+    85                 h = {"User-Agent": random.choice(self.USER_AGENTS), "Accept":
+       "application/json", "Cookie": f"v_udt={self.cookie}"}
+    86                 p = {"search_text": s, "per_page": str(ITEMS_PER_PAGE), "page": str(n)}
+    87                 try:
+    88                     r = await self.client.get(self.VINTED_API_URL, headers=h, params=p);
+       r.raise_for_status(); return r.json()
+    89                 except Exception as e:
+    90                     with open(ERRORS_FILE, "a") as f: f.write(f"Erreur: {e} pour {s} page {n}
+       \\n")
+    91             async def close(self): await self.client.aclose()
+    92
+    93         class VintedScraper:
+    94             def __init__(self, c, p):
+    95                 self.api, self.q = VintedAPIClient(c, p), asyncio.Queue()
+    96             async def _worker(self):
+    97                 while True:
+    98                     s, n = await self.q.get()
+    99                     d = await self.api.fetch_page(s, n)
+   100                     if d and "items" in d:
+   101                         i = d["items"]
+   102                         with open(RESULTS_FILE, "a", encoding="utf-8") as f:
+   103                             for it in i: f.write(json.dumps(it) + "\\n")
+   104                         if len(i) == ITEMS_PER_PAGE and n < MAX_PAGES_PER_TERM: await self
+       .q.put((s, n + 1))
+   105                     self.q.task_done(); await asyncio.sleep(random.uniform(0.5, 1.5))
+   106             async def run(self):
+   107                 open(RESULTS_FILE, "w").close(); open(ERRORS_FILE, "w").close()
+   108                 for t in SEARCH_TERMS: await self.q.put((t, 1))
+   109                 tasks = [asyncio.create_task(self._worker()) for _ in range
+       (CONCURRENT_REQUESTS)]
+   110                 await self.q.join()
+   111                 for t in tasks: t.cancel()
+   112                 await asyncio.gather(*tasks, return_exceptions=True); await self.api.close()
+   113     """,
+   114
+   115     "run.py": """
+   116         import asyncio, sys
+   117         from cookie_generator import get_vinted_cookie
+   118         from api_scraper import VintedScraper, PROXY_CONFIG
+   119
+   120         async def main():
+   121             print("--- Lancement du scraper V2 ---")
+   122             cookie = await get_vinted_cookie()
+   123             if not cookie:
+   124                 print("\\nERREUR CRITIQUE: Impossible de récupérer le cookie Vinted.")
+   125                 return
+   126             print("\\n--- Cookie obtenu. Lancement du scraping. ---")
+   127             scraper = VintedScraper(cookie=cookie, proxy_config=PROXY_CONFIG)
+   128             try:
+   129                 await scraper.run()
+   130             finally:
+   131                 print("\\n--- Processus de scraping terminé ---")
+   132
+   133         if __name__ == "__main__":
+   134             if sys.platform == "win32":
+   135                 asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+   136             asyncio.run(main())
+   137     """
+   138 }
+   139
+   140 # --- Script Principal d'installation ---
+   141 def create_project():
+   142     """Crée le dossier du projet et tous les fichiers nécessaires."""
+   143     print(f"Création du dossier du projet ici : {PROJECT_PATH}")
+   144     try:
+   145         os.makedirs(PROJECT_PATH, exist_ok=True)
+   146     except OSError as e:
+   147         print(f"ERREUR: Impossible de créer le dossier. {e}")
+   148         return
+   149
+   150     for filename, content in files_to_create.items():
+   151         file_path = os.path.join(PROJECT_PATH, filename)
+   152         print(f"  -> Création du fichier : {filename}")
+   153         try:
+   154             # textwrap.dedent enlève l'indentation pour que le code soit propre
+   155             with open(file_path, 'w', encoding='utf-8') as f:
+   156                 f.write(textwrap.dedent(content).strip())
+   157         except IOError as e:
+   158             print(f"ERREUR: Impossible d'écrire dans le fichier {filename}. {e}")
+   159             return
+   160
+   161     print("\\n" + "="*50)
+   162     print("--- PROJET CRÉÉ AVEC SUCCÈS ! ---")
+   163     print(f"Le dossier '{PROJECT_FOLDER_NAME}' est maintenant prêt.")
+   164     print("="*50 + "\\n")
+   165     print("PROCHAINES ÉTAPES :")
+   166     print("1. Ouvrez un terminal (PowerShell).")
+   167     print(f"2. Allez dans le dossier avec la commande : cd '{PROJECT_PATH}'")
+   168     print("3. Installez les dépendances avec la commande : pip install -r requirements.txt")
+   169     print("4. Installez le navigateur avec la commande : playwright install --with-deps
+       chromium")
+   170     print("5. Lancez le bot avec la commande : python run.py")
+   171     print("\\n" + "="*50)
+   172
+   173 if __name__ == '__main__':
+   174     create_project()
+   175     # Garde la fenêtre de terminal ouverte à la fin sur Windows
+   176     if sys.platform == "win32":
+   177         os.system("pause")
