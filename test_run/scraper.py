@@ -8,7 +8,6 @@ from playwright.async_api import async_playwright, BrowserContext
 from playwright_stealth.stealth import Stealth
 
 import database
-import excel_logger
 
 # --- Constantes ---
 FAILED_PAGES_FILE = "failed_pages.log"
@@ -17,7 +16,7 @@ FAILED_PAGES_FILE = "failed_pages.log"
 
 def load_config():
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    config_path = os.path.join(script_dir, "config_scraper.json")
+    config_path = os.path.join(script_dir, "config.json")
     with open(config_path, "r") as f:
         return json.load(f)
 
@@ -293,12 +292,6 @@ async def main():
         for task in worker_tasks: task.cancel()
         await asyncio.gather(*worker_tasks, return_exceptions=True)
         await browser.close()
-
-    # --- Étape 5: Exporter les résultats vers Excel ---
-    print("\n--- Exportation des résultats vers Excel ---")
-    db_path = "vinted.db"
-    excel_path = "bot_performance.xlsx"
-    excel_logger.export_to_excel(db_path, excel_path)
 
     print(f"\n--- Scraping terminé ---")
 

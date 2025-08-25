@@ -1,14 +1,12 @@
-
-
 import asyncio
 import json
 import random
 import os
 from playwright.async_api import async_playwright, BrowserContext
+import httpx
 from playwright_stealth.stealth import Stealth
 
 import database
-import excel_logger
 
 # --- Constantes ---
 FAILED_PAGES_FILE = "failed_pages.log"
@@ -17,7 +15,7 @@ FAILED_PAGES_FILE = "failed_pages.log"
 
 def load_config():
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    config_path = os.path.join(script_dir, "config_scraper.json")
+    config_path = os.path.join(script_dir, "config_restructuration.json")
     with open(config_path, "r") as f:
         return json.load(f)
 
@@ -248,57 +246,62 @@ async def main():
     database.init_db()
     open(FAILED_PAGES_FILE, "w").close()
 
+    # --- Étape 1: Génération du cookie avec Playwright ---
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
-        
-        # Étape 1: Génération autonome du cookie
+        browser = await p.chromium.launch(headless=True) # Mettre à False pour le débogage visuel
         vinted_cookie = await get_autonomous_cookie(browser)
         if not vinted_cookie: 
+            print("[Main] Impossible de récupérer le cookie. Arrêt du script.")
             await browser.close()
             return
 
-        # Étape 2: Découverte des catégories avec un contexte authentifié
+        # --- Étape 2: Découverte des catégories (peut encore utiliser Playwright pour la simplicité) ---
         base_context = await browser.new_context(user_agent=random.choice(user_agents))
         await base_context.add_cookies([{'name': 'v_udt', 'value': vinted_cookie, 'domain': '.vinted.fr', 'path': '/'}])
         all_catalog_urls = await get_catalog_urls(base_context)
         await base_context.close()
-        if not all_catalog_urls: return
-
-        # Étape 3: Filtrage et mise en file d'attente
-        target_keywords = config.get("target_categories", [])
-        final_urls = {url for url in all_catalog_urls if any(kw in url for kw in target_keywords)} if target_keywords else all_catalog_urls
-        queue = asyncio.Queue()
-        for url in final_urls:
-            await queue.put({"url": url, "page": 1, "retries": 0})
+        await browser.close()
         
-        if queue.empty(): return
+        if not all_catalog_urls:
+            print("[Main] Aucune URL de catalogue trouvée. Arrêt.")
+            return
 
-        print(f"--- {queue.qsize()} catégories à scraper. Lancement de {config['parallel_workers']} workers ---")
+    # --- Étape 3: Filtrage et mise en file d'attente ---
+    target_keywords = config.get("target_categories", [])
+    final_urls = {url for url in all_catalog_urls if any(kw in url for kw in target_keywords)} if target_keywords else all_catalog_urls
+    queue = asyncio.Queue()
+    for url in final_urls:
+        await queue.put({"url": url, "page": 1, "retries": 0})
+    
+    if queue.empty():
+        print("[Main] Aucune catégorie à scraper après filtrage. Arrêt.")
+        return
 
-        # Étape 4: Lancement des workers
+    print(f"--- {queue.qsize()} catégories à scraper. Lancement de {config['parallel_workers']} workers HTTPX ---")
+
+    # --- Étape 4: Lancement des workers HTTPX ---
+    proxies = config.get("proxies", [])
+    limits = httpx.Limits(max_connections=config.get('max_connections_per_worker', 20), 
+                          max_keepalive_connections=config.get('keepalive_connections', 10))
+    
+    async with httpx.AsyncClient(http2=True, timeout=45, limits=limits, follow_redirects=True) as client:
         worker_tasks = []
-        proxies = config.get("proxies", [])
         for i in range(config['parallel_workers']):
-            proxy = proxies[i % len(proxies)] if proxies else None
-            context = await browser.new_context(
-                user_agent=random.choice(user_agents),
-                proxy={'server': proxy} if proxy else None
-            )
-            await context.add_cookies([{'name': 'v_udt', 'value': vinted_cookie, 'domain': '.vinted.fr', 'path': '/'}])
-            print(f"[Worker {i+1}] Contexte créé. Proxy: {proxy or 'Aucun'}")
-            worker_tasks.append(asyncio.create_task(scraper_worker(queue, context, i + 1, config, user_agents)))
+            # La gestion des proxies pour httpx est différente, elle se fait au niveau du client.
+            # Pour une rotation de proxy par worker, il faudrait un client par worker.
+            # Ici, nous utilisons un client partagé, donc un seul proxy ou pas de proxy.
+            # Si des proxies sont nécessaires, la configuration doit être adaptée.
+            worker_tasks.append(asyncio.create_task(
+                httpx_worker(queue, client, i + 1, config, user_agents, vinted_cookie)
+            ))
 
         await queue.join()
 
-        for task in worker_tasks: task.cancel()
+        # Annuler les workers qui pourraient être en attente
+        for task in worker_tasks:
+            task.cancel()
+        
         await asyncio.gather(*worker_tasks, return_exceptions=True)
-        await browser.close()
-
-    # --- Étape 5: Exporter les résultats vers Excel ---
-    print("\n--- Exportation des résultats vers Excel ---")
-    db_path = "vinted.db"
-    excel_path = "bot_performance.xlsx"
-    excel_logger.export_to_excel(db_path, excel_path)
 
     print(f"\n--- Scraping terminé ---")
 

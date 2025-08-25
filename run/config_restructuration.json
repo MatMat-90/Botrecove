@@ -7,7 +7,7 @@
     "hommes/chaussures",
     "maison/textiles"
   ],
-  "parallel_workers": 5,
+  "parallel_workers": 50,
   "max_retries": 3,
   "proxies": [
     "http://user:pass@proxy1.com:8080",

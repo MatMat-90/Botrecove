@@ -1,0 +1,15 @@
+{
+  "_comment": "Mettez les mots-clés des catégories à scraper dans la liste ci-dessous. Ex: 'femmes/robes', 'hommes/manteaux', 'livres'. Laissez la liste vide pour scraper TOUT le site.",
+  "target_categories": [
+    "maison/textiles/linge-de-lit"
+  ],
+  "parallel_workers": 2,
+  "max_retries": 3,
+  "proxies": [
+    "http://user:pass@proxy1.com:8080",
+    "http://user:pass@proxy2.com:8080",
+    "http://user:pass@proxy3.com:8080",
+    "http://user:pass@proxy4.com:8080",
+    "http://user:pass@proxy5.com:8080"
+  ]
+}
